@@ -1,0 +1,46 @@
+// Paste into Power BI Desktop > DAX query view, then click
+// "Update model: Add 21 new measures" above the query.
+// Needs an empty table called _Measures (Home > Enter data).
+
+DEFINE
+    MEASURE '_Measures'[Days Available] = SUM ( fact_usage[days_available] )
+    MEASURE '_Measures'[Days in Month] = SUM ( fact_usage[days_in_month] )
+    MEASURE '_Measures'[Availability %] = DIVIDE ( [Days Available], [Days in Month] )
+
+    MEASURE '_Measures'[PM Due] = COUNTROWS ( fact_pm )
+    MEASURE '_Measures'[PM On Time] = CALCULATE ( COUNTROWS ( fact_pm ), fact_pm[done_on_time] = "Yes" )
+    MEASURE '_Measures'[PM On-Time %] = DIVIDE ( [PM On Time], [PM Due] )
+
+    MEASURE '_Measures'[Fleet Size] = COUNTROWS ( dim_vehicle )
+    MEASURE '_Measures'[Breakdowns] = CALCULATE ( COUNTROWS ( fact_maintenance ), fact_maintenance[job_type] = "Corrective" )
+    MEASURE '_Measures'[Breakdowns per 100] = AVERAGEX ( VALUES ( dim_date[month_date] ), DIVIDE ( [Breakdowns], [Fleet Size] ) * 100 )
+    MEASURE '_Measures'[MTTR (days)] = CALCULATE ( AVERAGE ( fact_maintenance[Repair Days] ), fact_maintenance[job_type] = "Corrective" )
+
+    MEASURE '_Measures'[Km Driven] = SUM ( fact_usage[km] )
+    MEASURE '_Measures'[Fuel Litres] = SUM ( fact_usage[fuel_litres] )
+    MEASURE '_Measures'[L per 100 km (fleet)] = DIVIDE ( [Fuel Litres], [Km Driven] ) * 100
+    MEASURE '_Measures'[Fuel Exceptions] = SUM ( fact_usage[Fuel Flag] )
+    MEASURE '_Measures'[Fuel Exceptions per Month] = AVERAGEX ( VALUES ( dim_date[month_date] ), [Fuel Exceptions] )
+
+    MEASURE '_Measures'[Maintenance Cost (AED)] = SUM ( fact_maintenance[cost_aed] )
+    MEASURE '_Measures'[Cost per km (AED)] = DIVIDE ( [Maintenance Cost (AED)], [Km Driven] )
+
+    MEASURE '_Measures'[Availability Before] = CALCULATE ( [Availability %], dim_date[period] = "Before" )
+    MEASURE '_Measures'[Availability After] = CALCULATE ( [Availability %], dim_date[period] = "After" )
+    MEASURE '_Measures'[Breakdowns Change %] =
+        VAR B = CALCULATE ( [Breakdowns per 100], dim_date[period] = "Before" )
+        VAR A = CALCULATE ( [Breakdowns per 100], dim_date[period] = "After" )
+        RETURN DIVIDE ( A - B, B )
+    MEASURE '_Measures'[Fuel Exceptions Change %] =
+        VAR B = CALCULATE ( [Fuel Exceptions per Month], dim_date[period] = "Before" )
+        VAR A = CALCULATE ( [Fuel Exceptions per Month], dim_date[period] = "After" )
+        RETURN DIVIDE ( A - B, B )
+
+EVALUATE
+SUMMARIZECOLUMNS (
+    dim_date[period],
+    "Availability", [Availability %],
+    "PM on time", [PM On-Time %],
+    "Breakdowns per 100", [Breakdowns per 100],
+    "Fuel exceptions per month", [Fuel Exceptions per Month]
+)
