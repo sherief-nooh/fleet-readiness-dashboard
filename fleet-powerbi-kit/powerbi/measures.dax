@@ -1,0 +1,118 @@
+// =====================================================================
+// Fleet Readiness Dashboard - DAX
+// Paste each block into Power BI: Modeling > New column / New measure.
+// Calculated columns first, then measures.
+// =====================================================================
+
+
+// ---------------------------------------------------------------------
+// CALCULATED COLUMNS
+// ---------------------------------------------------------------------
+
+// Table: fact_maintenance  -> New column
+Repair Days =
+DATEDIFF ( fact_maintenance[date_opened], fact_maintenance[date_closed], DAY )
+
+// Table: fact_usage  -> New column
+L per 100 km =
+DIVIDE ( fact_usage[fuel_litres], fact_usage[km] ) * 100
+
+// Table: fact_usage  -> New column
+// Median L/100 km of the same vehicle type in the same month
+Type Median =
+VAR ThisMonth = fact_usage[month_date]
+VAR ThisType  = RELATED ( dim_vehicle[vehicle_type] )
+RETURN
+    MEDIANX (
+        FILTER (
+            fact_usage,
+            fact_usage[month_date] = ThisMonth
+                && RELATED ( dim_vehicle[vehicle_type] ) = ThisType
+                && fact_usage[km] > 0
+        ),
+        fact_usage[L per 100 km]
+    )
+
+// Table: fact_usage  -> New column
+Fuel Flag =
+IF ( fact_usage[km] > 0 && fact_usage[L per 100 km] > fact_usage[Type Median] * 1.15, 1, 0 )
+
+
+// ---------------------------------------------------------------------
+// MEASURES  (create them all in a table called _Measures)
+// ---------------------------------------------------------------------
+
+// --- Availability ---
+Days Available = SUM ( fact_usage[days_available] )
+
+Days in Month = SUM ( fact_usage[days_in_month] )
+
+Availability % = DIVIDE ( [Days Available], [Days in Month] )
+
+// --- Preventive maintenance ---
+PM Due = COUNTROWS ( fact_pm )
+
+PM On Time =
+CALCULATE ( COUNTROWS ( fact_pm ), fact_pm[done_on_time] = "Yes" )
+
+PM On-Time % = DIVIDE ( [PM On Time], [PM Due] )
+
+// --- Breakdowns ---
+Fleet Size = COUNTROWS ( dim_vehicle )
+
+Breakdowns =
+CALCULATE ( COUNTROWS ( fact_maintenance ), fact_maintenance[job_type] = "Corrective" )
+
+// Average per month, so it reads the same for one month or a whole year
+Breakdowns per 100 =
+AVERAGEX (
+    VALUES ( dim_date[month_date] ),
+    DIVIDE ( [Breakdowns], [Fleet Size] ) * 100
+)
+
+MTTR (days) =
+CALCULATE (
+    AVERAGE ( fact_maintenance[Repair Days] ),
+    fact_maintenance[job_type] = "Corrective"
+)
+
+// --- Fuel ---
+Km Driven = SUM ( fact_usage[km] )
+
+Fuel Litres = SUM ( fact_usage[fuel_litres] )
+
+L per 100 km (fleet) = DIVIDE ( [Fuel Litres], [Km Driven] ) * 100
+
+Fuel Exceptions = SUM ( fact_usage[Fuel Flag] )
+
+// Average flagged vehicles per month
+Fuel Exceptions per Month =
+AVERAGEX ( VALUES ( dim_date[month_date] ), [Fuel Exceptions] )
+
+// --- Cost ---
+Maintenance Cost (AED) = SUM ( fact_maintenance[cost_aed] )
+
+Cost per km (AED) = DIVIDE ( [Maintenance Cost (AED)], [Km Driven] )
+
+// --- Before / after cards ---
+Availability Before =
+CALCULATE ( [Availability %], dim_date[period] = "Before" )
+
+Availability After =
+CALCULATE ( [Availability %], dim_date[period] = "After" )
+
+PM On-Time Before =
+CALCULATE ( [PM On-Time %], dim_date[period] = "Before" )
+
+PM On-Time After =
+CALCULATE ( [PM On-Time %], dim_date[period] = "After" )
+
+Breakdowns Change % =
+VAR B = CALCULATE ( [Breakdowns per 100], dim_date[period] = "Before" )
+VAR A = CALCULATE ( [Breakdowns per 100], dim_date[period] = "After" )
+RETURN DIVIDE ( A - B, B )
+
+Fuel Exceptions Change % =
+VAR B = CALCULATE ( [Fuel Exceptions per Month], dim_date[period] = "Before" )
+VAR A = CALCULATE ( [Fuel Exceptions per Month], dim_date[period] = "After" )
+RETURN DIVIDE ( A - B, B )
